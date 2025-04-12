@@ -99,17 +99,24 @@ jobs:
       - name: Optimize network configuration for China region
         run: |
             sed -i 's|home-assistant/{arch}-hassio-supervisor|ha-china/{arch}-hassio-supervisor|g' build.yaml
+            cat build.yaml
             sed -i 's|checkonline.home-assistant.io|version.hasscn.top|g' supervisor/supervisor.py
+            cat supervisor/supervisor.py
             sed -i  \
               -e 's|version.home-assistant.io|version.hasscn.top|g' \
               -e 's|github.com/home-assistant/addons|gitee.com/desmond_GT/hassio-addons|g' supervisor/const.py
+            cat supervisor/const.py
             sed -i 's|ghcr.io|ghcr.nju.edu.cn|g' supervisor/homeassistant/module.py
+            cat supervisor/homeassistant/module.py
             sed -i  \
               -e 's|URL_COMMUNITY_ADDONS|#URL_COMMUNITY_ADDONS|g' \
               -e 's|URL_ESPHOME|#URL_ESPHOME|g' \
               -e 's|URL_MUSIC_ASSISTANT|#URL_MUSIC_ASSISTANT|g' supervisor/store/validate.py
+            cat supervisor/store/validate.py
             sed -i 's|version.home-assistant.io|version.hasscn.top|g' tests/test_updater.py
+            cat tests/test_updater.py
             sed -i 's|ghcr.io|ghcr.nju.edu.cn|g' tests/homeassistant/test_core.py
+            cat tests/homeassistant/test_core.py
 
       - name: Write env-file
         if: needs.init.outputs.requirements == 'true'
