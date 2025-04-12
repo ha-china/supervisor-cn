@@ -1,12 +1,39 @@
 name: Build supervisor - CN
 
 on:
-
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Channel"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+      version:
+        description: "Version"
+        required: true
+      publish:
+        description: "Publish"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - true
+      stable:
+        description: "Stable"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - true
+  #pull_request:
+  #  branches: ["main"]
   release:
     types: ["published"]
   push:
     branches: ["main"]
-    tags: ["20*"]
+    tags: ["v*.*.*"]
     paths:
       - "rootfs/**"
       - "supervisor/**"
@@ -15,25 +42,11 @@ on:
       - requirements.txt
       - setup.py
 
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version (Tag Name)'
-        required: true
-        type: string
-        default: '2025.04.0'  # 默认值，你可以设置为一个示例标签
-    #pull_request:
-    #  branches: ["main"]
-
-
 env:
   DEFAULT_PYTHON: "3.13"
   BUILD_NAME: supervisor
   BUILD_TYPE: supervisor
-  channel: "stable"
-  version: ${{ github.ref_name }} 
-  publish: "true"
-  stable: "true"
+  
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
