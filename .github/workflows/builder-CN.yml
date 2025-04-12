@@ -186,22 +186,22 @@ jobs:
         env:
           CAS_API_KEY: ${{ secrets.CAS_TOKEN }}
 
-#  version:
-#    name: Update version
-#    needs: ["init", "run_supervisor"]
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Checkout the repository
-#        if: needs.init.outputs.publish == 'true'
-#        uses: actions/checkout@v4.2.2
+  version:
+    name: Update version
+    needs: ["init", "run_supervisor"]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        if: needs.init.outputs.publish == 'true'
+        uses: actions/checkout@v4.2.2
 
-#      - name: Initialize git
-#        if: needs.init.outputs.publish == 'true'
-#        uses: home-assistant/actions/helpers/git-init@master
-#        with:
-#          name: ${{ secrets.GIT_NAME }}
-#          email: ${{ secrets.GIT_EMAIL }}
-#          token: ${{ secrets.GIT_TOKEN }}
+      - name: Initialize git
+        if: needs.init.outputs.publish == 'true'
+        uses: home-assistant/actions/helpers/git-init@master
+        with:
+          name: ${{ secrets.GIT_NAME }}
+          email: ${{ secrets.GIT_EMAIL }}
+          token: ${{ secrets.GIT_TOKEN }}
 
 #      - name: Update version file
 #        if: needs.init.outputs.publish == 'true'
