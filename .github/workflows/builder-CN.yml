@@ -26,7 +26,7 @@ env:
   BUILD_NAME: supervisor
   BUILD_TYPE: supervisor
   channel: "stable"
-  version: ${{ github.ref }} 
+  version: ${{ github.ref_name }} 
   publish: "true"
   stable: "true"
 
