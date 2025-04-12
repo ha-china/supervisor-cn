@@ -33,7 +33,6 @@ on:
     types: ["published"]
   push:
     branches: ["main"]
-    tags: ["v*.*.*"]
     paths:
       - "rootfs/**"
       - "supervisor/**"
@@ -77,6 +76,9 @@ jobs:
         uses: home-assistant/actions/helpers/version@master
         with:
           type: ${{ env.BUILD_TYPE }}
+        
+      - name: Set channel to stable
+        run: echo "channel=stable" >> $GITHUB_ENV
 
       - name: Get changed files
         id: changed_files
@@ -107,6 +109,8 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
+        
+          
       - name: Optimize network configuration for China region
         run: |
             sed -i 's|home-assistant/{arch}-hassio-supervisor|ha-china/{arch}-hassio-supervisor|g' build.yaml
