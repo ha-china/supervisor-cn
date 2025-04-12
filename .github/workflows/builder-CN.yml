@@ -119,6 +119,7 @@ jobs:
               -e 's|version.home-assistant.io|version.hasscn.top|g' \
               -e 's|github.com/home-assistant/addons|gitee.com/desmond_GT/hassio-addons|g' supervisor/const.py
             sed -i 's|ghcr.io|ghcr.nju.edu.cn|g' supervisor/homeassistant/module.py
+            sed -i 's|ghcr.io|ghcr.nju.edu.cn|g' supervisor/plugins/base.py
             sed -i  \
               -e 's|URL_COMMUNITY_ADDONS|#URL_COMMUNITY_ADDONS|g' \
               -e 's|URL_ESPHOME|#URL_ESPHOME|g' \
