@@ -16,9 +16,14 @@ on:
       - setup.py
 
   workflow_dispatch:
-
-  #pull_request:
-  #  branches: ["main"]
+    inputs:
+      version:
+        description: 'Version (Tag Name)'
+        required: true
+        type: string
+        default: '2025.04.0'  # 默认值，你可以设置为一个示例标签
+    #pull_request:
+    #  branches: ["main"]
 
 
 env:
