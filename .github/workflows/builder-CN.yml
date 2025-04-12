@@ -2,25 +2,7 @@ name: Build supervisor - CN
 
 on:
   workflow_dispatch:
-    inputs:
-      channel:
-        description: "Channel"
-        required: true
-        default: "stable"
-        type: choice
-        options:
-          - stable
-      version:
-        description: "Version"
-        required: true
-      publish:
-        description: "Publish"
-        required: true
-        default: "true"
-      stable:
-        description: "Stable"
-        required: true
-        default: "true"
+
   #pull_request:
   #  branches: ["main"]
   release:
@@ -39,6 +21,10 @@ env:
   DEFAULT_PYTHON: "3.13"
   BUILD_NAME: supervisor
   BUILD_TYPE: supervisor
+  CHANNEL: "stable"
+  VERSION: "2025.04.0"  # Set the version to the desired value
+  PUBLISH: "true"  # Set to true by default
+  STABLE: "true"   # Set to true by default
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
