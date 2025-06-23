@@ -125,15 +125,15 @@ jobs:
 
       - name: Set up Python ${{ env.DEFAULT_PYTHON }}
         if: needs.init.outputs.publish == 'true'
-        uses: actions/setup-python@v5.5.0
+        uses: actions/setup-python@v5.6.0
         with:
           python-version: ${{ env.DEFAULT_PYTHON }}
 
       - name: Install Cosign
         if: needs.init.outputs.publish == 'true'
-        uses: sigstore/cosign-installer@v3.8.2
+        uses: sigstore/cosign-installer@v3.9.0
         with:
-          cosign-release: "v2.4.0"
+          cosign-release: "v2.4.3"
 
       - name: Install dirhash and calc hash
         if: needs.init.outputs.publish == 'true'

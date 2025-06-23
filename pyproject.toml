@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools~=79.0.0", "wheel~=0.46.1"]
+requires = ["setuptools~=80.9.0", "wheel~=0.46.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -230,6 +230,9 @@ filterwarnings = [
     "ignore:pkg_resources is deprecated as an API:DeprecationWarning:dirhash",
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
+markers = [
+    "no_mock_init_websession: disable the autouse mock of init_websession for this test",
+]
 
 [tool.ruff]
 lint.select = [
@@ -272,7 +275,6 @@ lint.select = [
     "S317",    # suspicious-xml-sax-usage
     "S318",    # suspicious-xml-mini-dom-usage
     "S319",    # suspicious-xml-pull-dom-usage
-    "S320",    # suspicious-xmle-tree-usage
     "S601",    # paramiko-call
     "S602",    # subprocess-popen-with-shell-equals-true
     "S604",    # call-with-shell-equals-true

@@ -56,7 +56,7 @@ async def check_port(address: IPv4Address, port: int) -> bool:
     return True
 
 
-def check_exception_chain(err: Exception, object_type: Any) -> bool:
+def check_exception_chain(err: BaseException, object_type: Any) -> bool:
     """Check if exception chain include sub exception.
 
     It's not full recursive because we need mostly only access to the latest.
@@ -70,7 +70,7 @@ def check_exception_chain(err: Exception, object_type: Any) -> bool:
     return check_exception_chain(err.__context__, object_type)
 
 
-def get_message_from_exception_chain(err: Exception) -> str:
+def get_message_from_exception_chain(err: BaseException) -> str:
     """Get the first message from the exception chain."""
     if str(err):
         return str(err)
@@ -119,8 +119,8 @@ def remove_folder_with_excludes(
 
     Must be run in executor.
     """
-    with TemporaryDirectory(dir=tmp_dir) as temp_path:
-        temp_path = Path(temp_path)
+    with TemporaryDirectory(dir=tmp_dir) as temp_path_str:
+        temp_path = Path(temp_path_str)
         moved_files: list[Path] = []
         for item in folder.iterdir():
             if any(item.match(exclude) for exclude in excludes):
@@ -129,6 +129,28 @@ def remove_folder_with_excludes(
         remove_folder(folder, content_only=True)
         for item in moved_files:
             item.rename(folder / item.name)
+
+
+def get_latest_mtime(directory: Path) -> tuple[float, Path]:
+    """Get the last modification time of directories and files in a directory.
+
+    Must be run in an executor. The root directory is included too, this means
+    that often the root directory is returned as the last modified file if a
+    new file is created in it.
+    """
+    latest_mtime = directory.stat().st_mtime
+    latest_path = directory
+    for path in directory.rglob("*"):
+        try:
+            mtime = path.stat().st_mtime
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_path = path
+        except FileNotFoundError:
+            # File might disappear between listing and stat. Parent
+            # directory modification date will flag such a change.
+            continue
+    return latest_mtime, latest_path
 
 
 def clean_env() -> dict[str, str]:

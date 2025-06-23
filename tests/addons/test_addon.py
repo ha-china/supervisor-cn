@@ -446,6 +446,27 @@ async def test_backup(
     assert await install_addon_ssh.backup(tarfile) is None
 
 
+@pytest.mark.parametrize("status", ["running", "stopped"])
+async def test_backup_no_config(
+    coresys: CoreSys,
+    install_addon_ssh: Addon,
+    container: MagicMock,
+    status: str,
+    tmp_supervisor_data,
+    path_extern,
+) -> None:
+    """Test backing up an addon with deleted config directory."""
+    container.status = status
+
+    install_addon_ssh.data["map"].append({"type": "addon_config", "read_only": False})
+    assert not install_addon_ssh.path_config.exists()
+    install_addon_ssh.path_data.mkdir()
+    await install_addon_ssh.load()
+
+    tarfile = SecureTarFile(coresys.config.path_tmp / "test.tar.gz", "w")
+    assert await install_addon_ssh.backup(tarfile) is None
+
+
 async def test_backup_with_pre_post_command(
     coresys: CoreSys,
     install_addon_ssh: Addon,
@@ -709,6 +730,7 @@ async def test_local_example_start(
     container: MagicMock,
     tmp_supervisor_data: Path,
     install_addon_example: Addon,
+    path_extern,
 ):
     """Test start of an addon."""
     install_addon_example.path_data.mkdir()
@@ -790,13 +812,17 @@ def test_auto_update_available(coresys: CoreSys, install_addon_example: Addon):
 
 async def test_paths_cache(coresys: CoreSys, install_addon_ssh: Addon):
     """Test cache for key paths that may or may not exist."""
-    with patch("supervisor.addons.addon.Path.exists", return_value=True):
-        assert not install_addon_ssh.with_logo
-        assert not install_addon_ssh.with_icon
-        assert not install_addon_ssh.with_changelog
-        assert not install_addon_ssh.with_documentation
+    assert not install_addon_ssh.with_logo
+    assert not install_addon_ssh.with_icon
+    assert not install_addon_ssh.with_changelog
+    assert not install_addon_ssh.with_documentation
 
+    with (
+        patch("supervisor.addons.addon.Path.exists", return_value=True),
+        patch("supervisor.store.repository.Repository.update", return_value=True),
+    ):
         await coresys.store.reload(coresys.store.get("local"))
+
         assert install_addon_ssh.with_logo
         assert install_addon_ssh.with_icon
         assert install_addon_ssh.with_changelog

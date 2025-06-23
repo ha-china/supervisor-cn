@@ -122,6 +122,25 @@ class BackupManager(FileConfiguration, JobGroup):
 
         return self.sys_config.path_backup
 
+    async def get_upload_path_for_location(self, location: LOCATION_TYPE) -> Path:
+        """Get a path (temporary) upload path for a backup location."""
+        target_path = self._get_base_path(location)
+
+        # Return target path for mounts since tmp will always be local, mounts
+        # will never be the same device.
+        if location is not None and location != LOCATION_CLOUD_BACKUP:
+            return target_path
+
+        tmp_path = self.sys_config.path_tmp
+
+        def check_same_mount() -> bool:
+            """Check if the target path is on the same mount as the backup location."""
+            return target_path.stat().st_dev == tmp_path.stat().st_dev
+
+        if await self.sys_run_in_executor(check_same_mount):
+            return tmp_path
+        return target_path
+
     async def _check_location(self, location: LOCATION_TYPE | type[DEFAULT] = DEFAULT):
         """Check if backup location is accessible."""
         if location == DEFAULT and self.sys_mounts.default_backup_mount:
@@ -359,66 +378,69 @@ class BackupManager(FileConfiguration, JobGroup):
         if not backup.all_locations:
             del self._backups[backup.slug]
 
+    @Job(name="backup_copy_to_location", cleanup=False)
+    async def _copy_to_location(
+        self, backup: Backup, location: LOCATION_TYPE
+    ) -> tuple[str | None, Path]:
+        """Copy a backup file to the default location."""
+        location_name = location.name if isinstance(location, Mount) else location
+        self.sys_jobs.current.reference = location_name
+        try:
+            if location == LOCATION_CLOUD_BACKUP:
+                destination = self.sys_config.path_core_backup
+            elif location:
+                location_mount = cast(Mount, location)
+                if not location_mount.local_where.is_mount():
+                    raise BackupMountDownError(
+                        f"{location_mount.name} is down, cannot copy to it",
+                        _LOGGER.error,
+                    )
+                destination = location_mount.local_where
+            else:
+                destination = self.sys_config.path_backup
+
+            path = await self.sys_run_in_executor(copy, backup.tarfile, destination)
+            return (location_name, Path(path))
+        except OSError as err:
+            msg = f"Could not copy backup to {location_name} due to: {err!s}"
+
+            if err.errno == errno.EBADMSG and location in {
+                LOCATION_CLOUD_BACKUP,
+                None,
+            }:
+                raise BackupDataDiskBadMessageError(msg, _LOGGER.error) from err
+            raise BackupError(msg, _LOGGER.error) from err
+
+    @Job(name="backup_copy_to_additional_locations", cleanup=False)
     async def _copy_to_additional_locations(
         self,
         backup: Backup,
         locations: list[LOCATION_TYPE],
     ):
         """Copy a backup file to additional locations."""
-
         all_new_locations: dict[str | None, Path] = {}
+        for location in locations:
+            try:
+                location_name, path = await self._copy_to_location(backup, location)
+                all_new_locations[location_name] = path
+            except BackupDataDiskBadMessageError as err:
+                self.sys_resolution.add_unhealthy_reason(
+                    UnhealthyReason.OSERROR_BAD_MESSAGE
+                )
+                self.sys_jobs.current.capture_error(err)
+            except BackupError as err:
+                self.sys_jobs.current.capture_error(err)
 
-        def copy_to_additional_locations() -> None:
-            """Copy backup file to additional locations."""
-            nonlocal all_new_locations
-            for location in locations:
-                try:
-                    if location == LOCATION_CLOUD_BACKUP:
-                        all_new_locations[LOCATION_CLOUD_BACKUP] = Path(
-                            copy(backup.tarfile, self.sys_config.path_core_backup)
-                        )
-                    elif location:
-                        location_mount = cast(Mount, location)
-                        if not location_mount.local_where.is_mount():
-                            raise BackupMountDownError(
-                                f"{location_mount.name} is down, cannot copy to it",
-                                _LOGGER.error,
-                            )
-                        all_new_locations[location_mount.name] = Path(
-                            copy(backup.tarfile, location_mount.local_where)
-                        )
-                    else:
-                        all_new_locations[None] = Path(
-                            copy(backup.tarfile, self.sys_config.path_backup)
-                        )
-                except OSError as err:
-                    msg = f"Could not copy backup to {location.name if isinstance(location, Mount) else location} due to: {err!s}"
-
-                    if err.errno == errno.EBADMSG and location in {
-                        LOCATION_CLOUD_BACKUP,
-                        None,
-                    }:
-                        raise BackupDataDiskBadMessageError(msg, _LOGGER.error) from err
-                    raise BackupError(msg, _LOGGER.error) from err
-
-        try:
-            await self.sys_run_in_executor(copy_to_additional_locations)
-        except BackupDataDiskBadMessageError:
-            self.sys_resolution.add_unhealthy_reason(
-                UnhealthyReason.OSERROR_BAD_MESSAGE
-            )
-            raise
-        finally:
-            backup.all_locations.update(
-                {
-                    loc: BackupLocation(
-                        path=path,
-                        protected=backup.protected,
-                        size_bytes=backup.size_bytes,
-                    )
-                    for loc, path in all_new_locations.items()
-                }
-            )
+        backup.all_locations.update(
+            {
+                loc: BackupLocation(
+                    path=path,
+                    protected=backup.protected,
+                    size_bytes=backup.size_bytes,
+                )
+                for loc, path in all_new_locations.items()
+            }
+        )
 
     @Job(name="backup_manager_import_backup")
     async def import_backup(
@@ -499,7 +521,8 @@ class BackupManager(FileConfiguration, JobGroup):
     ) -> Backup | None:
         """Create a backup.
 
-        Must be called from an existing backup job.
+        Must be called from an existing backup job. If the backup failed, the
+        backup file is being deleted and None is returned.
         """
         addon_start_tasks: list[Awaitable[None]] | None = None
 
@@ -529,9 +552,12 @@ class BackupManager(FileConfiguration, JobGroup):
                 self._change_stage(BackupJobStage.FINISHING_FILE, backup)
 
         except BackupError as err:
+            await self.sys_run_in_executor(backup.tarfile.unlink, missing_ok=True)
+            _LOGGER.error("Backup %s error: %s", backup.slug, err)
             self.sys_jobs.current.capture_error(err)
             return None
         except Exception as err:  # pylint: disable=broad-except
+            await self.sys_run_in_executor(backup.tarfile.unlink, missing_ok=True)
             _LOGGER.exception("Backup %s error", backup.slug)
             await async_capture_exception(err)
             self.sys_jobs.current.capture_error(
@@ -543,12 +569,7 @@ class BackupManager(FileConfiguration, JobGroup):
 
             if additional_locations:
                 self._change_stage(BackupJobStage.COPY_ADDITONAL_LOCATIONS, backup)
-                try:
-                    await self._copy_to_additional_locations(
-                        backup, additional_locations
-                    )
-                except BackupError as err:
-                    self.sys_jobs.current.capture_error(err)
+                await self._copy_to_additional_locations(backup, additional_locations)
 
             if addon_start_tasks:
                 self._change_stage(BackupJobStage.AWAIT_ADDON_RESTARTS, backup)

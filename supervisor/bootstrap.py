@@ -1,6 +1,7 @@
 """Bootstrap Supervisor."""
 
 # ruff: noqa: T100
+import asyncio
 from importlib import import_module
 import logging
 import os
@@ -54,6 +55,14 @@ async def initialize_coresys() -> CoreSys:
     """Initialize supervisor coresys/objects."""
     coresys = await CoreSys().load_config()
 
+    # Check if ENV is in development mode
+    if coresys.dev:
+        _LOGGER.warning("Environment variable 'SUPERVISOR_DEV' is set")
+        coresys.config.logging = LogLevel.DEBUG
+        coresys.config.debug = True
+    else:
+        coresys.config.modify_log_level()
+
     # Initialize core objects
     coresys.docker = await DockerAPI(coresys).post_init()
     coresys.resolution = await ResolutionManager(coresys).load_config()
@@ -93,15 +102,9 @@ async def initialize_coresys() -> CoreSys:
     # bootstrap config
     initialize_system(coresys)
 
-    # Check if ENV is in development mode
     if coresys.dev:
-        _LOGGER.warning("Environment variable 'SUPERVISOR_DEV' is set")
-        coresys.config.logging = LogLevel.DEBUG
-        coresys.config.debug = True
         coresys.updater.channel = UpdateChannel.DEV
         coresys.security.content_trust = False
-    else:
-        coresys.config.modify_log_level()
 
     # Convert datetime
     logging.Formatter.converter = lambda *args: coresys.now().timetuple()
@@ -282,8 +285,8 @@ def check_environment() -> None:
         _LOGGER.critical("Can't find Docker socket!")
 
 
-def reg_signal(loop, coresys: CoreSys) -> None:
-    """Register SIGTERM and SIGKILL to stop system."""
+def register_signal_handlers(loop: asyncio.AbstractEventLoop, coresys: CoreSys) -> None:
+    """Register SIGTERM, SIGHUP and SIGKILL to stop the Supervisor."""
     try:
         loop.add_signal_handler(
             signal.SIGTERM, lambda: loop.create_task(coresys.core.stop())

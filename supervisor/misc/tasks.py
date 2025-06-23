@@ -1,13 +1,12 @@
 """A collection of tasks."""
 
-import asyncio
-from collections.abc import Awaitable
 from datetime import datetime, timedelta
 import logging
+from typing import cast
 
 from ..addons.const import ADDON_UPDATE_CONDITIONS
-from ..backups.const import LOCATION_CLOUD_BACKUP
-from ..const import AddonState
+from ..backups.const import LOCATION_CLOUD_BACKUP, LOCATION_TYPE
+from ..const import ATTR_TYPE, AddonState
 from ..coresys import CoreSysAttributes
 from ..exceptions import (
     AddonsError,
@@ -15,7 +14,7 @@ from ..exceptions import (
     HomeAssistantError,
     ObserverError,
 )
-from ..homeassistant.const import LANDINGPAGE
+from ..homeassistant.const import LANDINGPAGE, WSType
 from ..jobs.decorator import Job, JobCondition, JobExecutionLimit
 from ..plugins.const import PLUGIN_UPDATE_CONDITIONS
 from ..utils.dt import utcnow
@@ -106,7 +105,6 @@ class Tasks(CoreSysAttributes):
     )
     async def _update_addons(self):
         """Check if an update is available for an Add-on and update it."""
-        start_tasks: list[Awaitable[None]] = []
         for addon in self.sys_addons.all:
             if not addon.is_installed or not addon.auto_update:
                 continue
@@ -124,6 +122,12 @@ class Tasks(CoreSysAttributes):
                 continue
             # Delay auto-updates for a day in case of issues
             if utcnow() < addon.latest_version_timestamp + timedelta(days=1):
+                _LOGGER.debug(
+                    "Not updating add-on %s from %s to %s as the latest version is less than a day old",
+                    addon.slug,
+                    addon.version,
+                    addon.latest_version,
+                )
                 continue
             if not addon.test_update_schema():
                 _LOGGER.warning(
@@ -131,16 +135,21 @@ class Tasks(CoreSysAttributes):
                 )
                 continue
 
-            # Run Add-on update sequential
-            # avoid issue on slow IO
             _LOGGER.info("Add-on auto update process %s", addon.slug)
-            try:
-                if start_task := await self.sys_addons.update(addon.slug, backup=True):
-                    start_tasks.append(start_task)
-            except AddonsError:
-                _LOGGER.error("Can't auto update Add-on %s", addon.slug)
-
-        await asyncio.gather(*start_tasks)
+            # Call Home Assistant Core to update add-on to make sure that backups
+            # get created through the Home Assistant Core API (categorized correctly).
+            # Ultimately auto updates should be handled by Home Assistant Core itself
+            # through a update entity feature.
+            message = {
+                ATTR_TYPE: WSType.HASSIO_UPDATE_ADDON,
+                "addon": addon.slug,
+                "backup": True,
+            }
+            _LOGGER.debug(
+                "Sending update add-on WebSocket command to Home Assistant Core: %s",
+                message,
+            )
+            await self.sys_homeassistant.websocket.async_send_command(message)
 
     @Job(
         name="tasks_update_supervisor",
@@ -370,6 +379,8 @@ class Tasks(CoreSysAttributes):
         ]
         for backup in old_backups:
             try:
-                await self.sys_backups.remove(backup, [LOCATION_CLOUD_BACKUP])
+                await self.sys_backups.remove(
+                    backup, [cast(LOCATION_TYPE, LOCATION_CLOUD_BACKUP)]
+                )
             except BackupFileNotFoundError as err:
                 _LOGGER.debug("Can't remove backup %s: %s", backup.slug, err)

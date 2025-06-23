@@ -2,8 +2,11 @@
 
 import logging
 from pathlib import Path
+from typing import cast
 
 import voluptuous as vol
+
+from supervisor.utils import get_latest_mtime
 
 from ..const import ATTR_MAINTAINER, ATTR_NAME, ATTR_URL, FILE_SUFFIX_CONFIGURATION
 from ..coresys import CoreSys, CoreSysAttributes
@@ -19,10 +22,10 @@ UNKNOWN = "unknown"
 
 
 class Repository(CoreSysAttributes):
-    """Repository in Supervisor."""
+    """Add-on store repository in Supervisor."""
 
     def __init__(self, coresys: CoreSys, repository: str):
-        """Initialize repository object."""
+        """Initialize add-on store repository object."""
         self.coresys: CoreSys = coresys
         self.git: GitRepo | None = None
 
@@ -30,6 +33,7 @@ class Repository(CoreSysAttributes):
         if repository == StoreType.LOCAL:
             self._slug = repository
             self._type = StoreType.LOCAL
+            self._latest_mtime: float | None = None
         elif repository == StoreType.CORE:
             self.git = GitRepoHassIO(coresys)
             self._slug = repository
@@ -78,7 +82,7 @@ class Repository(CoreSysAttributes):
 
         Must be run in executor.
         """
-        if self.type != StoreType.GIT:
+        if not self.git or self.type == StoreType.CORE:
             return True
 
         # If exists?
@@ -102,18 +106,41 @@ class Repository(CoreSysAttributes):
     async def load(self) -> None:
         """Load addon repository."""
         if not self.git:
+            self._latest_mtime, _ = await self.sys_run_in_executor(
+                get_latest_mtime, self.sys_config.path_addons_local
+            )
             return
         await self.git.load()
 
     async def update(self) -> bool:
-        """Update add-on repository."""
+        """Update add-on repository.
+
+        Returns True if the repository was updated.
+        """
         if not await self.sys_run_in_executor(self.validate):
             return False
-        return self.type == StoreType.LOCAL or await self.git.pull()
+
+        if self.git:
+            return await self.git.pull()
+
+        # Check local modifications
+        latest_mtime, modified_path = await self.sys_run_in_executor(
+            get_latest_mtime, self.sys_config.path_addons_local
+        )
+        if self._latest_mtime != latest_mtime:
+            _LOGGER.debug(
+                "Local modifications detected in %s repository: %s",
+                self.slug,
+                modified_path,
+            )
+            self._latest_mtime = latest_mtime
+            return True
+
+        return False
 
     async def remove(self) -> None:
         """Remove add-on repository."""
-        if self.type != StoreType.GIT:
+        if not self.git or self.type == StoreType.CORE:
             raise StoreError("Can't remove built-in repositories!", _LOGGER.error)
 
-        await self.git.remove()
+        await cast(GitRepoCustom, self.git).remove()

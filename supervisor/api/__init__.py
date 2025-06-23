@@ -8,7 +8,7 @@ from typing import Any
 
 from aiohttp import hdrs, web
 
-from ..const import AddonState
+from ..const import SUPERVISOR_DOCKER_NAME, AddonState
 from ..coresys import CoreSys, CoreSysAttributes
 from ..exceptions import APIAddonNotInstalled, HostNotSupportedError
 from ..utils.sentry import async_capture_exception
@@ -345,6 +345,9 @@ class RestAPI(CoreSysAttributes):
         api_root.coresys = self.coresys
 
         self.webapp.add_routes([web.get("/info", api_root.info)])
+        self.webapp.add_routes([web.post("/reload_updates", api_root.reload_updates)])
+
+        # Discouraged
         self.webapp.add_routes([web.post("/refresh_updates", api_root.refresh_updates)])
         self.webapp.add_routes(
             [web.get("/available_updates", api_root.available_updates)]
@@ -423,7 +426,7 @@ class RestAPI(CoreSysAttributes):
         async def get_supervisor_logs(*args, **kwargs):
             try:
                 return await self._api_host.advanced_logs_handler(
-                    *args, identifier="hassio_supervisor", **kwargs
+                    *args, identifier=SUPERVISOR_DOCKER_NAME, **kwargs
                 )
             except Exception as err:  # pylint: disable=broad-exception-caught
                 # Supervisor logs are critical, so catch everything, log the exception
@@ -786,6 +789,7 @@ class RestAPI(CoreSysAttributes):
         self.webapp.add_routes(
             [
                 web.get("/docker/info", api_docker.info),
+                web.post("/docker/options", api_docker.options),
                 web.get("/docker/registries", api_docker.registries),
                 web.post("/docker/registries", api_docker.create_registry),
                 web.delete("/docker/registries/{hostname}", api_docker.remove_registry),

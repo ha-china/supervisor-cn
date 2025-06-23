@@ -18,8 +18,6 @@ import time
 from typing import Any, Self, cast
 
 from awesomeversion import AwesomeVersion, AwesomeVersionCompareException
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from securetar import AddFileError, SecureTarFile, atomic_contents_add, secure_path
 import voluptuous as vol
 from voluptuous.humanize import humanize_error
@@ -62,7 +60,7 @@ from ..utils.dt import parse_datetime, utcnow
 from ..utils.json import json_bytes
 from ..utils.sentinel import DEFAULT
 from .const import BUF_SIZE, LOCATION_CLOUD_BACKUP, BackupType
-from .utils import key_to_iv, password_to_key
+from .utils import password_to_key
 from .validate import SCHEMA_BACKUP
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -102,7 +100,6 @@ class Backup(JobGroup):
         self._tmp: TemporaryDirectory | None = None
         self._outer_secure_tarfile: SecureTarFile | None = None
         self._key: bytes | None = None
-        self._aes: Cipher | None = None
         self._locations: dict[str | None, BackupLocation] = {
             location: BackupLocation(
                 path=tar_file,
@@ -245,11 +242,6 @@ class Backup(JobGroup):
         return self._locations[self.location].size_bytes
 
     @property
-    def is_new(self) -> bool:
-        """Return True if there is new."""
-        return not self.tarfile.exists()
-
-    @property
     def tarfile(self) -> Path:
         """Return path to backup tarfile."""
         return self._locations[self.location].path
@@ -353,16 +345,10 @@ class Backup(JobGroup):
             self._init_password(password)
         else:
             self._key = None
-            self._aes = None
 
     def _init_password(self, password: str) -> None:
-        """Set password + init aes cipher."""
+        """Create key from password."""
         self._key = password_to_key(password)
-        self._aes = Cipher(
-            algorithms.AES(self._key),
-            modes.CBC(key_to_iv(self._key)),
-            backend=default_backend(),
-        )
 
     async def validate_backup(self, location: str | None) -> None:
         """Validate backup.
@@ -608,9 +594,7 @@ class Backup(JobGroup):
         try:
             start_task = await addon.backup(addon_file)
         except AddonsError as err:
-            raise BackupError(
-                f"Can't create backup for {addon.slug}", _LOGGER.error
-            ) from err
+            raise BackupError(str(err)) from err
 
         # Store to config
         self._data[ATTR_ADDONS].append(
@@ -639,8 +623,11 @@ class Backup(JobGroup):
             try:
                 if start_task := await self._addon_save(addon):
                     start_tasks.append(start_task)
-            except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.warning("Can't save Add-on %s: %s", addon.slug, err)
+            except BackupError as err:
+                err = BackupError(
+                    f"Can't backup add-on {addon.slug}: {str(err)}", _LOGGER.error
+                )
+                self.sys_jobs.current.capture_error(err)
 
         return start_tasks
 
@@ -769,16 +756,20 @@ class Backup(JobGroup):
             if await self.sys_run_in_executor(_save):
                 self._data[ATTR_FOLDERS].append(name)
         except (tarfile.TarError, OSError, AddFileError) as err:
-            raise BackupError(
-                f"Can't backup folder {name}: {str(err)}", _LOGGER.error
-            ) from err
+            raise BackupError(f"Can't write tarfile: {str(err)}") from err
 
     @Job(name="backup_store_folders", cleanup=False)
     async def store_folders(self, folder_list: list[str]):
         """Backup Supervisor data into backup."""
         # Save folder sequential avoid issue on slow IO
         for folder in folder_list:
-            await self._folder_save(folder)
+            try:
+                await self._folder_save(folder)
+            except BackupError as err:
+                err = BackupError(
+                    f"Can't backup folder {folder}: {str(err)}", _LOGGER.error
+                )
+                self.sys_jobs.current.capture_error(err)
 
     @Job(name="backup_folder_restore", cleanup=False)
     async def _folder_restore(self, name: str) -> None:

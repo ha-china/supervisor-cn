@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 import aiohttp
+from pycares import AresError
 
 from .config import CoreConfig
 from .const import (
@@ -21,6 +22,7 @@ from .const import (
     ENV_SUPERVISOR_MACHINE,
     MACHINE_ID,
     SERVER_SOFTWARE,
+    VALID_API_STATES,
 )
 
 if TYPE_CHECKING:
@@ -60,18 +62,17 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 class CoreSys:
     """Class that handle all shared data."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize coresys."""
         # Static attributes protected
         self._machine_id: str | None = None
         self._machine: str | None = None
 
         # External objects
-        self._loop: asyncio.BaseEventLoop = asyncio.get_running_loop()
-        self._websession = None
+        self._loop = asyncio.get_running_loop()
 
         # Global objects
-        self._config: CoreConfig = CoreConfig()
+        self._config = CoreConfig()
 
         # Internal objects pointers
         self._docker: DockerAPI | None = None
@@ -100,9 +101,7 @@ class CoreSys:
         self._security: Security | None = None
         self._bus: Bus | None = None
         self._mounts: MountManager | None = None
-
-        # Setup aiohttp session
-        self.create_websession()
+        self._websession: aiohttp.ClientSession | None = None
 
         # Task factory attributes
         self._set_task_context: list[Callable[[Context], Context]] = []
@@ -112,7 +111,41 @@ class CoreSys:
         await self.config.read_data()
         return self
 
-    async def init_machine(self):
+    async def init_websession(self) -> None:
+        """Initialize global aiohttp ClientSession."""
+        if self.core.state in VALID_API_STATES:
+            # Make sure we don't reinitialize the session if the API is running (see #5851)
+            raise RuntimeError(
+                "Initializing ClientSession is not safe when API is running"
+            )
+
+        if self._websession:
+            await self._websession.close()
+
+        resolver: aiohttp.abc.AbstractResolver
+        try:
+            resolver = aiohttp.AsyncResolver(loop=self.loop)
+            # pylint: disable=protected-access
+            _LOGGER.debug(
+                "Initializing ClientSession with AsyncResolver. Using nameservers %s",
+                resolver._resolver.nameservers,
+            )
+        except AresError as err:
+            _LOGGER.critical(
+                "Unable to initialize async DNS resolver: %s", err, exc_info=True
+            )
+            resolver = aiohttp.ThreadedResolver(loop=self.loop)
+
+        connector = aiohttp.TCPConnector(loop=self.loop, resolver=resolver)
+
+        session = aiohttp.ClientSession(
+            headers=MappingProxyType({aiohttp.hdrs.USER_AGENT: SERVER_SOFTWARE}),
+            connector=connector,
+        )
+
+        self._websession = session
+
+    async def init_machine(self) -> None:
         """Initialize machine information."""
 
         def _load_machine_id() -> str | None:
@@ -135,7 +168,7 @@ class CoreSys:
     @property
     def dev(self) -> bool:
         """Return True if we run dev mode."""
-        return bool(os.environ.get(ENV_SUPERVISOR_DEV, 0))
+        return bool(os.environ.get(ENV_SUPERVISOR_DEV) == "1")
 
     @property
     def timezone(self) -> str:
@@ -156,13 +189,15 @@ class CoreSys:
         return UTC
 
     @property
-    def loop(self) -> asyncio.BaseEventLoop:
+    def loop(self) -> asyncio.AbstractEventLoop:
         """Return loop object."""
         return self._loop
 
     @property
     def websession(self) -> aiohttp.ClientSession:
         """Return websession object."""
+        if self._websession is None:
+            raise RuntimeError("WebSession not setup yet")
         return self._websession
 
     @property
@@ -574,23 +609,13 @@ class CoreSys:
         self._set_task_context.append(callback)
 
     def run_in_executor(
-        self, funct: Callable[..., T], *args: tuple[Any], **kwargs: dict[str, Any]
-    ) -> Coroutine[Any, Any, T]:
+        self, funct: Callable[..., T], *args, **kwargs
+    ) -> asyncio.Future[T]:
         """Add an job to the executor pool."""
         if kwargs:
             funct = partial(funct, **kwargs)
 
         return self.loop.run_in_executor(None, funct, *args)
-
-    def create_websession(self) -> None:
-        """Create a new aiohttp session."""
-        if self._websession:
-            self.create_task(self._websession.close())
-
-        # Create session and set default header for aiohttp
-        self._websession: aiohttp.ClientSession = aiohttp.ClientSession(
-            headers=MappingProxyType({aiohttp.hdrs.USER_AGENT: SERVER_SOFTWARE})
-        )
 
     def _create_context(self) -> Context:
         """Create a new context for a task."""
@@ -606,9 +631,9 @@ class CoreSys:
     def call_later(
         self,
         delay: float,
-        funct: Callable[..., Coroutine[Any, Any, T]],
-        *args: tuple[Any],
-        **kwargs: dict[str, Any],
+        funct: Callable[..., Any],
+        *args,
+        **kwargs,
     ) -> asyncio.TimerHandle:
         """Start a task after a delay."""
         if kwargs:
@@ -619,9 +644,9 @@ class CoreSys:
     def call_at(
         self,
         when: datetime,
-        funct: Callable[..., Coroutine[Any, Any, T]],
-        *args: tuple[Any],
-        **kwargs: dict[str, Any],
+        funct: Callable[..., Any],
+        *args,
+        **kwargs,
     ) -> asyncio.TimerHandle:
         """Start a task at the specified datetime."""
         if kwargs:
@@ -649,7 +674,7 @@ class CoreSysAttributes:
 
     @property
     def sys_machine_id(self) -> str | None:
-        """Return machine id."""
+        """Return machine ID."""
         return self.coresys.machine_id
 
     @property
@@ -658,7 +683,7 @@ class CoreSysAttributes:
         return self.coresys.dev
 
     @property
-    def sys_loop(self) -> asyncio.BaseEventLoop:
+    def sys_loop(self) -> asyncio.AbstractEventLoop:
         """Return loop object."""
         return self.coresys.loop
 
@@ -808,7 +833,7 @@ class CoreSysAttributes:
 
     def sys_run_in_executor(
         self, funct: Callable[..., T], *args, **kwargs
-    ) -> Coroutine[Any, Any, T]:
+    ) -> asyncio.Future[T]:
         """Add a job to the executor pool."""
         return self.coresys.run_in_executor(funct, *args, **kwargs)
 
@@ -819,7 +844,7 @@ class CoreSysAttributes:
     def sys_call_later(
         self,
         delay: float,
-        funct: Callable[..., Coroutine[Any, Any, T]],
+        funct: Callable[..., Any],
         *args,
         **kwargs,
     ) -> asyncio.TimerHandle:
@@ -829,7 +854,7 @@ class CoreSysAttributes:
     def sys_call_at(
         self,
         when: datetime,
-        funct: Callable[..., Coroutine[Any, Any, T]],
+        funct: Callable[..., Any],
         *args,
         **kwargs,
     ) -> asyncio.TimerHandle:

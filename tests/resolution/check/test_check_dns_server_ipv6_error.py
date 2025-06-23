@@ -15,7 +15,7 @@ from supervisor.resolution.const import ContextType, IssueType
 async def fixture_dns_query() -> AsyncMock:
     """Mock aiodns query."""
     with patch(
-        "supervisor.resolution.checks.dns_server_ipv6.DNSResolver.query",
+        "supervisor.resolution.checks.dns_server.DNSResolver.query",
         new_callable=AsyncMock,
     ) as dns_query:
         yield dns_query
@@ -68,7 +68,7 @@ async def test_check(coresys: CoreSys, dns_query: AsyncMock, capture_exception: 
     capture_exception.assert_called_once_with(err)
 
 
-async def test_approve(coresys: CoreSys, dns_query: AsyncMock):
+async def test_approve(coresys: CoreSys, supervisor_internet, dns_query: AsyncMock):
     """Test approve existing DNS Server IPv6 error issues."""
     dns_server_ipv6 = CheckDNSServerIPv6(coresys)
     await coresys.core.set_state(CoreState.RUNNING)

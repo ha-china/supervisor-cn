@@ -3,7 +3,6 @@
 import asyncio
 from datetime import timedelta
 
-from aiodns import DNSResolver
 from aiodns.error import DNSError
 
 from ...const import CoreState
@@ -11,8 +10,9 @@ from ...coresys import CoreSys
 from ...jobs.const import JobCondition, JobExecutionLimit
 from ...jobs.decorator import Job
 from ...utils.sentry import async_capture_exception
-from ..const import DNS_CHECK_HOST, DNS_ERROR_NO_DATA, ContextType, IssueType
+from ..const import DNS_ERROR_NO_DATA, ContextType, IssueType
 from .base import CheckBase
+from .dns_server import check_server
 
 
 def setup(coresys: CoreSys) -> CheckBase:
@@ -33,21 +33,21 @@ class CheckDNSServerIPv6(CheckBase):
         """Run check if not affected by issue."""
         dns_servers = self.dns_servers
         results = await asyncio.gather(
-            *[self._check_server(server) for server in dns_servers],
+            *[check_server(self.sys_loop, server, "AAAA") for server in dns_servers],
             return_exceptions=True,
         )
-        for i in (
-            r
-            for r in range(len(results))
-            if isinstance(results[r], DNSError)
-            and results[r].args[0] != DNS_ERROR_NO_DATA
-        ):
-            self.sys_resolution.create_issue(
-                IssueType.DNS_SERVER_IPV6_ERROR,
-                ContextType.DNS_SERVER,
-                reference=dns_servers[i],
-            )
-            await async_capture_exception(results[i])
+        # pylint: disable-next=consider-using-enumerate
+        for i in range(len(results)):
+            if (
+                isinstance(result := results[i], DNSError)
+                and result.args[0] != DNS_ERROR_NO_DATA
+            ):
+                self.sys_resolution.create_issue(
+                    IssueType.DNS_SERVER_IPV6_ERROR,
+                    ContextType.DNS_SERVER,
+                    reference=dns_servers[i],
+                )
+                await async_capture_exception(result)
 
     @Job(
         name="check_dns_server_ipv6_approve", conditions=[JobCondition.INTERNET_SYSTEM]
@@ -58,18 +58,12 @@ class CheckDNSServerIPv6(CheckBase):
             return False
 
         try:
-            await self._check_server(reference)
+            await check_server(self.sys_loop, reference, "AAAA")
         except DNSError as dns_error:
             if dns_error.args[0] != DNS_ERROR_NO_DATA:
                 return True
 
         return False
-
-    async def _check_server(self, server: str):
-        """Check a DNS server and report issues."""
-        ip_addr = server[6:] if server.startswith("dns://") else server
-        resolver = DNSResolver(nameservers=[ip_addr])
-        await resolver.query(DNS_CHECK_HOST, "AAAA")
 
     @property
     def dns_servers(self) -> list[str]:

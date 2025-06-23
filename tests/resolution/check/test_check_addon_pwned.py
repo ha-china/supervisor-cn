@@ -58,7 +58,7 @@ async def test_check(coresys: CoreSys):
     assert coresys.resolution.suggestions[-1].reference == addon.slug
 
 
-async def test_approve(coresys: CoreSys):
+async def test_approve(coresys: CoreSys, supervisor_internet):
     """Test check."""
     addon_pwned = CheckAddonPwned(coresys)
     await coresys.core.set_state(CoreState.RUNNING)
@@ -71,10 +71,6 @@ async def test_approve(coresys: CoreSys):
     assert await addon_pwned.approve_check(reference=addon.slug)
 
     coresys.security.verify_secret = AsyncMock(return_value=None)
-    assert not await addon_pwned.approve_check(reference=addon.slug)
-
-    addon.is_installed = False
-    coresys.security.verify_secret = AsyncMock(side_effect=PwnedSecret)
     assert not await addon_pwned.approve_check(reference=addon.slug)
 
 

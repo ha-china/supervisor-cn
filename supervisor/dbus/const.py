@@ -135,6 +135,7 @@ DBUS_ATTR_LAST_ERROR = "LastError"
 DBUS_ATTR_LLMNR = "LLMNR"
 DBUS_ATTR_LLMNR_HOSTNAME = "LLMNRHostname"
 DBUS_ATTR_LOADER_TIMESTAMP_MONOTONIC = "LoaderTimestampMonotonic"
+DBUS_ATTR_LOCAL_RTC = "LocalRTC"
 DBUS_ATTR_MANAGED = "Managed"
 DBUS_ATTR_MODE = "Mode"
 DBUS_ATTR_MODEL = "Model"
@@ -208,6 +209,24 @@ class InterfaceMethod(StrEnum):
     MANUAL = "manual"
     DISABLED = "disabled"
     LINK_LOCAL = "link-local"
+
+
+class InterfaceAddrGenMode(IntEnum):
+    """Interface addr_gen_mode."""
+
+    EUI64 = 0
+    STABLE_PRIVACY = 1
+    DEFAULT_OR_EUI64 = 2
+    DEFAULT = 3
+
+
+class InterfaceIp6Privacy(IntEnum):
+    """Interface ip6_privacy."""
+
+    DEFAULT = -1
+    DISABLED = 0
+    ENABLED_PREFER_PUBLIC = 1
+    ENABLED = 2
 
 
 class ConnectionType(StrEnum):

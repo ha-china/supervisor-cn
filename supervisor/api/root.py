@@ -17,6 +17,7 @@ from ..const import (
     ATTR_ICON,
     ATTR_LOGGING,
     ATTR_MACHINE,
+    ATTR_MACHINE_ID,
     ATTR_NAME,
     ATTR_OPERATING_SYSTEM,
     ATTR_STATE,
@@ -48,6 +49,7 @@ class APIRoot(CoreSysAttributes):
             ATTR_OPERATING_SYSTEM: self.sys_host.info.operating_system,
             ATTR_FEATURES: self.sys_host.features,
             ATTR_MACHINE: self.sys_machine,
+            ATTR_MACHINE_ID: self.sys_machine_id,
             ATTR_ARCH: self.sys_arch.default,
             ATTR_STATE: self.sys_core.state,
             ATTR_SUPPORTED_ARCH: self.sys_arch.supported,
@@ -113,3 +115,8 @@ class APIRoot(CoreSysAttributes):
         await asyncio.shield(
             asyncio.gather(self.sys_updater.reload(), self.sys_store.reload())
         )
+
+    @api_process
+    async def reload_updates(self, request: web.Request) -> None:
+        """Refresh updater update information."""
+        await self.sys_updater.reload()

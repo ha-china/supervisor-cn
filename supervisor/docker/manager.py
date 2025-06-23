@@ -22,6 +22,7 @@ from docker.types.daemon import CancellableStream
 import requests
 
 from ..const import (
+    ATTR_ENABLE_IPV6,
     ATTR_REGISTRIES,
     DNS_SUFFIX,
     DOCKER_NETWORK,
@@ -83,7 +84,7 @@ class DockerInfo:
         """Return true, if CONFIG_RT_GROUP_SCHED is loaded."""
         if not Path("/sys/fs/cgroup/cpu/cpu.rt_runtime_us").exists():
             return False
-        return bool(os.environ.get(ENV_SUPERVISOR_CPU_RT, 0))
+        return bool(os.environ.get(ENV_SUPERVISOR_CPU_RT) == "1")
 
 
 class DockerConfig(FileConfiguration):
@@ -92,6 +93,16 @@ class DockerConfig(FileConfiguration):
     def __init__(self):
         """Initialize the JSON configuration."""
         super().__init__(FILE_HASSIO_DOCKER, SCHEMA_DOCKER_CONFIG)
+
+    @property
+    def enable_ipv6(self) -> bool:
+        """Return IPv6 configuration for docker network."""
+        return self._data.get(ATTR_ENABLE_IPV6, False)
+
+    @enable_ipv6.setter
+    def enable_ipv6(self, value: bool) -> None:
+        """Set IPv6 configuration for docker network."""
+        self._data[ATTR_ENABLE_IPV6] = value
 
     @property
     def registries(self) -> dict[str, Any]:
@@ -124,9 +135,11 @@ class DockerAPI:
                 timeout=900,
             ),
         )
-        self._network = DockerNetwork(self._docker)
         self._info = DockerInfo.new(self.docker.info())
         await self.config.read_data()
+        self._network = await DockerNetwork(self.docker).post_init(
+            self.config.enable_ipv6
+        )
         return self
 
     @property
@@ -202,7 +215,7 @@ class DockerAPI:
         if "labels" not in kwargs:
             kwargs["labels"] = {}
         elif isinstance(kwargs["labels"], list):
-            kwargs["labels"] = {label: "" for label in kwargs["labels"]}
+            kwargs["labels"] = dict.fromkeys(kwargs["labels"], "")
 
         kwargs["labels"][LABEL_MANAGED] = ""
 
