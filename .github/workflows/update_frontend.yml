@@ -19,7 +19,7 @@ jobs:
         id: latest_frontend_version
         uses: abatilo/release-info-action@v1.3.3
         with:
-          owner: home-assistant
+          owner: ha-china
           repo: frontend
       - name: Check if version is up to date
         id: check_version
@@ -59,7 +59,7 @@ jobs:
       - name: Download release assets
         uses: robinraju/release-downloader@v1
         with:
-          repository: 'home-assistant/frontend'
+          repository: 'ha-china/frontend'
           tag: ${{ needs.check-version.outputs.latest_version }}
           fileName: home_assistant_frontend_supervisor-${{ needs.check-version.outputs.latest_version }}.tar.gz
           extract: true
@@ -78,5 +78,5 @@ jobs:
           title: "Update frontend to version ${{ needs.check-version.outputs.latest_version }}"
           body: >
             Update frontend from ${{ needs.check-version.outputs.current_version }} to
-            [${{ needs.check-version.outputs.latest_version }}](https://github.com/home-assistant/frontend/releases/tag/${{ needs.check-version.outputs.latest_version }})
+            [${{ needs.check-version.outputs.latest_version }}](https://github.com/ha-china/frontend/releases/tag/${{ needs.check-version.outputs.latest_version }})
 

@@ -112,6 +112,11 @@ jobs:
         
           
       - name: Optimize network configuration for China region
+        env:
+          ACC_URL: ${{ secrets.ACC_URL }}
+          ORI_URL: ${{ secrets.ORI_URL }}
+          CHK_URL: ${{ secrets.CHK_URL }}
+          VER_URL: ${{ secrets.VER_URL }}
         run: |
             sed -i 's|home-assistant/{arch}-hassio-supervisor|ha-china/{arch}-hassio-supervisor|g' build.yaml
             sed -i 's|checkonline.home-assistant.io|version.hasscn.top|g' supervisor/supervisor.py
