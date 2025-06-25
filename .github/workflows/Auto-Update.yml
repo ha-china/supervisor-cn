@@ -11,7 +11,9 @@ jobs:
     steps:
       # 检出你的 fork 仓库
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # 设置 git 配置
       - name: Set up Git
@@ -21,19 +23,20 @@ jobs:
 
       # 添加原仓库作为 upstream
       - name: Add upstream remote
-        run: git remote add upstream https://github.com/home-assistant/supervisor.git
-
-      # 获取原仓库的更改
-      - name: Fetch upstream changes
-        run: git fetch upstream
+        run: |
+              git remote add upstream https://github.com/home-assistant/supervisor.git
+              git fetch upstream
+              git fetch upstream --tags
 
       # 合并原仓库的主分支更改到当前分支
       - name: Merge upstream changes
         run: |
           git checkout main
-          git merge upstream/main --allow-unrelated-histories
+          git merge upstream/main --allow-unrelated-histories || true
 
       # 推送更改到你的 fork 仓库
       - name: Push changes
-        run: git push origin main
+        run: |
+              git push origin main
+              git push origin --tags
 
