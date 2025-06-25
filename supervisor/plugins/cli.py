@@ -6,7 +6,6 @@ Code: https://github.com/home-assistant/plugin-cli
 from collections.abc import Awaitable
 import logging
 import secrets
-from typing import cast
 
 from awesomeversion import AwesomeVersion
 
@@ -15,7 +14,7 @@ from ..coresys import CoreSys
 from ..docker.cli import DockerCli
 from ..docker.const import ContainerState
 from ..docker.stats import DockerStats
-from ..exceptions import CliError, CliJobError, CliUpdateError, DockerError
+from ..exceptions import CliError, CliJobError, CliUpdateError, DockerError, PluginError
 from ..jobs.const import JobExecutionLimit
 from ..jobs.decorator import Job
 from ..utils.sentry import async_capture_exception
@@ -54,9 +53,9 @@ class PluginCli(PluginBase):
         return self.sys_updater.version_cli
 
     @property
-    def supervisor_token(self) -> str:
+    def supervisor_token(self) -> str | None:
         """Return an access token for the Supervisor API."""
-        return cast(str, self._data[ATTR_ACCESS_TOKEN])
+        return self._data.get(ATTR_ACCESS_TOKEN)
 
     @Job(
         name="plugin_cli_update",
@@ -67,7 +66,7 @@ class PluginCli(PluginBase):
         """Update local HA cli."""
         try:
             await super().update(version)
-        except DockerError as err:
+        except (DockerError, PluginError) as err:
             raise CliUpdateError("CLI update failed", _LOGGER.error) from err
 
     async def start(self) -> None:
